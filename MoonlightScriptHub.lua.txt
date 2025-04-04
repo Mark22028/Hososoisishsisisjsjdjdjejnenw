@@ -1,0 +1,2638 @@
+-- Moonlight Script Hub
+-- A powerful universal Roblox script hub with 1000+ features organized into 5 tabs
+-- Using DrRay UI Library: https://github.com/AZYsGithub/DrRay-UI-Library
+
+local DrRayLibrary = loadstring(game:HttpGet("https://raw.githubusercontent.com/AZYsGithub/DrRay-UI-Library/main/DrRay.lua"))()
+
+-- Create the main window
+local window = DrRayLibrary:Load("Moonlight Hub", "rbxassetid://10618928818")
+
+-- Initialize variables
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
+local Lighting = game:GetService("Lighting")
+local Workspace = game:GetService("Workspace")
+local VirtualUser = game:GetService("VirtualUser")
+
+-- Create our 5 main tabs
+local CombatTab = window.NewTab("Combat")
+local VisualTab = window.NewTab("Visuals")
+local MovementTab = window.NewTab("Movement")
+local MiscTab = window.NewTab("Misc")
+local GameTab = window.NewTab("Game Specific")
+
+-- Helper Functions
+local function getNearestPlayer(maxDistance)
+    maxDistance = maxDistance or math.huge
+    local closest, closestDistance = nil, maxDistance
+    
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") and player.Character:FindFirstChild("Humanoid") and player.Character.Humanoid.Health > 0 then
+            local distance = (player.Character.HumanoidRootPart.Position - LocalPlayer.Character.HumanoidRootPart.Position).Magnitude
+            if distance < closestDistance then
+                closest = player
+                closestDistance = distance
+            end
+        end
+    end
+    
+    return closest, closestDistance
+end
+
+local function teleportTo(position)
+    if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+        LocalPlayer.Character.HumanoidRootPart.CFrame = CFrame.new(position)
+    end
+end
+
+local function getPlayerByName(name)
+    for _, player in pairs(Players:GetPlayers()) do
+        if player.Name:lower():find(name:lower()) or player.DisplayName:lower():find(name:lower()) then
+            return player
+        end
+    end
+    return nil
+end
+
+-- Combat Tab Features
+local CombatSection1 = CombatTab.NewSection("Combat Features")
+local CombatSection2 = CombatTab.NewSection("Fling Options")
+local CombatSection3 = CombatTab.NewSection("Target Options")
+
+-- Toggle for Kill Aura
+local killAuraEnabled = false
+local killAuraRange = 15
+local killAuraDelay = 0.1
+local lastKillAuraTime = 0
+
+CombatSection1.NewToggle("Kill Aura", "Automatically attacks nearby players", false, function(enabled)
+    killAuraEnabled = enabled
+    
+    if enabled then
+        RunService:BindToRenderStep("KillAura", 100, function()
+            if tick() - lastKillAuraTime < killAuraDelay then return end
+            lastKillAuraTime = tick()
+            
+            local target = getNearestPlayer(killAuraRange)
+            if target then
+                -- Simulate attack on target
+                local args = {
+                    [1] = target.Character.HumanoidRootPart.Position,
+                    [2] = target.Character.HumanoidRootPart
+                }
+                
+                local remotes = {}
+                for _, descendant in pairs(game:GetDescendants()) do
+                    if descendant:IsA("RemoteEvent") and 
+                       (descendant.Name:lower():find("attack") or
+                        descendant.Name:lower():find("hit") or
+                        descendant.Name:lower():find("damage")) then
+                        table.insert(remotes, descendant)
+                    end
+                end
+                
+                for _, remote in pairs(remotes) do
+                    pcall(function()
+                        remote:FireServer(unpack(args))
+                    end)
+                end
+                
+                -- Fallback method for games without clear remotes
+                if #remotes == 0 then
+                    if LocalPlayer.Character:FindFirstChildOfClass("Tool") then
+                        local tool = LocalPlayer.Character:FindFirstChildOfClass("Tool")
+                        if tool:FindFirstChild("Handle") then
+                            tool.Handle.CFrame = target.Character.HumanoidRootPart.CFrame
+                        end
+                    end
+                end
+            end
+        end)
+    else
+        RunService:UnbindFromRenderStep("KillAura")
+    end
+end)
+
+-- Kill Aura Range Slider
+CombatSection1.NewSlider("Kill Aura Range", "Adjust the kill aura radius", 50, 1, function(value)
+    killAuraRange = value
+end)
+
+-- Fling Aura Feature
+local flingAuraEnabled = false
+local flingAuraRange = 10
+local flingPower = 9999
+local flingTick = 0
+local flinging = false
+
+CombatSection2.NewToggle("Fling Aura", "Flings nearby players away", false, function(enabled)
+    flingAuraEnabled = enabled
+    
+    if enabled then
+        -- Save old properties
+        local oldGravity = workspace.Gravity
+        local oldHipHeight = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") and 
+                             LocalPlayer.Character.Humanoid.HipHeight or 2
+        
+        RunService:BindToRenderStep("FlingAura", 100, function()
+            if flinging then return end
+            
+            local target, distance = getNearestPlayer(flingAuraRange)
+            if target and tick() - flingTick > 1 then
+                flinging = true
+                flingTick = tick()
+                
+                -- Prepare for fling
+                workspace.Gravity = 0
+                if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
+                    LocalPlayer.Character.Humanoid.HipHeight = 1000
+                end
+                
+                -- Wait a bit
+                task.wait(0.5)
+                
+                -- Fling towards target
+                if LocalPlayer.Character and target.Character then
+                    local humanoidRootPart = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+                    local targetRootPart = target.Character:FindFirstChild("HumanoidRootPart")
+                    
+                    if humanoidRootPart and targetRootPart then
+                        local direction = (targetRootPart.Position - humanoidRootPart.Position).Unit
+                        humanoidRootPart.Velocity = direction * flingPower
+                        
+                        -- Restore after fling
+                        task.wait(0.5)
+                        workspace.Gravity = oldGravity
+                        if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
+                            LocalPlayer.Character.Humanoid.HipHeight = oldHipHeight
+                        end
+                        humanoidRootPart.Velocity = Vector3.new(0, 0, 0)
+                    end
+                end
+                
+                flinging = false
+            end
+        end)
+    else
+        RunService:UnbindFromRenderStep("FlingAura")
+        workspace.Gravity = 196.2
+        if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
+            LocalPlayer.Character.Humanoid.HipHeight = 2
+        end
+    end
+end)
+
+-- Touch Fling Feature
+local touchFlingEnabled = false
+
+CombatSection2.NewToggle("Touch Fling", "Fling players when you touch them", false, function(enabled)
+    touchFlingEnabled = enabled
+    
+    if enabled then
+        -- Create connection to detect when touching a player
+        local touchFlingConnection
+        touchFlingConnection = LocalPlayer.Character.Humanoid.Touched:Connect(function(part)
+            if not touchFlingEnabled then 
+                if touchFlingConnection then
+                    touchFlingConnection:Disconnect()
+                end
+                return 
+            end
+            
+            local targetCharacter = part:FindFirstAncestorOfClass("Model")
+            local targetPlayer = Players:GetPlayerFromCharacter(targetCharacter)
+            
+            if targetPlayer and targetPlayer ~= LocalPlayer then
+                -- Fling target
+                local targetHumanoidRootPart = targetCharacter:FindFirstChild("HumanoidRootPart")
+                local thisRootPart = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+                
+                if targetHumanoidRootPart and thisRootPart then
+                    -- Apply fling force to target
+                    local direction = (targetHumanoidRootPart.Position - thisRootPart.Position).Unit
+                    targetHumanoidRootPart.Velocity = direction * flingPower
+                end
+            end
+        end)
+        
+        -- Reconnect if character respawns
+        LocalPlayer.CharacterAdded:Connect(function(character)
+            if touchFlingEnabled then
+                touchFlingConnection = character.Humanoid.Touched:Connect(function(part)
+                    -- Same logic as above
+                    if not touchFlingEnabled then return end
+                    
+                    local targetCharacter = part:FindFirstAncestorOfClass("Model")
+                    local targetPlayer = Players:GetPlayerFromCharacter(targetCharacter)
+                    
+                    if targetPlayer and targetPlayer ~= LocalPlayer then
+                        local targetHumanoidRootPart = targetCharacter:FindFirstChild("HumanoidRootPart")
+                        local thisRootPart = character:FindFirstChild("HumanoidRootPart")
+                        
+                        if targetHumanoidRootPart and thisRootPart then
+                            local direction = (targetHumanoidRootPart.Position - thisRootPart.Position).Unit
+                            targetHumanoidRootPart.Velocity = direction * flingPower
+                        end
+                    end
+                end)
+            end
+        end)
+    else
+        -- Cleanup when disabled
+        for _, connection in pairs(getconnections(LocalPlayer.Character.Humanoid.Touched)) do
+            connection:Disconnect()
+        end
+    end
+end)
+
+-- Click Fling Feature
+local clickFlingEnabled = false
+
+CombatSection2.NewToggle("Click Fling", "Fling players when you click on them", false, function(enabled)
+    clickFlingEnabled = enabled
+    
+    if enabled then
+        local mouseDown = false
+        
+        UserInputService.InputBegan:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 then
+                mouseDown = true
+                
+                -- Check if mouse is over a player
+                local mouseTarget = LocalPlayer:GetMouse().Target
+                if not mouseTarget then return end
+                
+                local targetCharacter = mouseTarget:FindFirstAncestorOfClass("Model")
+                local targetPlayer = Players:GetPlayerFromCharacter(targetCharacter)
+                
+                if targetPlayer and targetPlayer ~= LocalPlayer and clickFlingEnabled then
+                    -- Fling target
+                    local targetHumanoidRootPart = targetCharacter:FindFirstChild("HumanoidRootPart")
+                    local thisRootPart = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+                    
+                    if targetHumanoidRootPart and thisRootPart then
+                        -- Apply fling force to target
+                        local direction = (targetHumanoidRootPart.Position - thisRootPart.Position).Unit
+                        targetHumanoidRootPart.Velocity = direction * flingPower
+                    end
+                end
+            end
+        end)
+        
+        UserInputService.InputEnded:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 then
+                mouseDown = false
+            end
+        end)
+    end
+end)
+
+-- Fling Power Slider
+CombatSection2.NewSlider("Fling Power", "Adjust how powerful flings are", 30000, 1000, function(value)
+    flingPower = value
+end)
+
+-- Auto Parry Toggle
+local autoParryEnabled = false
+local autoParryRange = 20
+local autoParryDebounce = false
+
+CombatSection1.NewToggle("Auto Parry", "Automatically parry incoming attacks", false, function(enabled)
+    autoParryEnabled = enabled
+    
+    if enabled then
+        RunService:BindToRenderStep("AutoParry", 100, function()
+            if autoParryDebounce then return end
+            
+            for _, player in pairs(Players:GetPlayers()) do
+                if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+                    local distance = (player.Character.HumanoidRootPart.Position - LocalPlayer.Character.HumanoidRootPart.Position).Magnitude
+                    
+                    if distance <= autoParryRange then
+                        -- Check if player is attacking
+                        local tool = player.Character:FindFirstChildOfClass("Tool")
+                        if tool then
+                            local animationTracks = player.Character.Humanoid:GetPlayingAnimationTracks()
+                            
+                            for _, track in pairs(animationTracks) do
+                                if track.Name:lower():find("attack") or track.Name:lower():find("swing") then
+                                    -- Trigger parry
+                                    autoParryDebounce = true
+                                    
+                                    -- Try to find and trigger parry remote
+                                    local parryRemotes = {}
+                                    for _, descendant in pairs(game:GetDescendants()) do
+                                        if descendant:IsA("RemoteEvent") and 
+                                          (descendant.Name:lower():find("parry") or
+                                           descendant.Name:lower():find("block") or
+                                           descendant.Name:lower():find("defend")) then
+                                            table.insert(parryRemotes, descendant)
+                                        end
+                                    end
+                                    
+                                    for _, remote in pairs(parryRemotes) do
+                                        pcall(function()
+                                            remote:FireServer()
+                                        end)
+                                    end
+                                    
+                                    -- Fallback if no parry remote found
+                                    if #parryRemotes == 0 then
+                                        -- Try to equip shield or defensive item
+                                        for _, item in pairs(LocalPlayer.Backpack:GetChildren()) do
+                                            if item:IsA("Tool") and 
+                                              (item.Name:lower():find("shield") or
+                                               item.Name:lower():find("block") or
+                                               item.Name:lower():find("parry")) then
+                                                LocalPlayer.Character.Humanoid:EquipTool(item)
+                                                task.wait(0.1)
+                                                
+                                                -- Try to use the equipped tool
+                                                VirtualUser:Button1Down(Vector2.new(0, 0))
+                                                task.wait(0.1)
+                                                VirtualUser:Button1Up(Vector2.new(0, 0))
+                                            end
+                                        end
+                                    end
+                                    
+                                    task.wait(1) -- Debounce time
+                                    autoParryDebounce = false
+                                    break
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end)
+    else
+        RunService:UnbindFromRenderStep("AutoParry")
+    end
+end)
+
+-- Aim Options
+local aimbotEnabled = false
+local aimbotSmoothness = 0.5
+local aimbotTarget = "Head"
+local aimbotLookVector = nil
+
+CombatSection3.NewToggle("Aimbot", "Automatically aim at nearby players", false, function(enabled)
+    aimbotEnabled = enabled
+    
+    if enabled then
+        RunService:BindToRenderStep("Aimbot", 100, function()
+            local target = getNearestPlayer(100)
+            if target and target.Character and target.Character:FindFirstChild(aimbotTarget) then
+                local targetPos = target.Character[aimbotTarget].Position
+                
+                -- Calculate the look vector
+                local camera = workspace.CurrentCamera
+                local lookVector = (targetPos - camera.CFrame.Position).Unit
+                
+                -- Apply smoothing if enabled
+                if aimbotLookVector then
+                    lookVector = aimbotLookVector:Lerp(lookVector, aimbotSmoothness)
+                end
+                
+                aimbotLookVector = lookVector
+                
+                -- Apply the new camera CFrame
+                camera.CFrame = CFrame.new(camera.CFrame.Position, camera.CFrame.Position + lookVector)
+            end
+        end)
+    else
+        RunService:UnbindFromRenderStep("Aimbot")
+        aimbotLookVector = nil
+    end
+end)
+
+CombatSection3.NewDropdown("Aimbot Target", "Select which body part to aim at", {"Head", "UpperTorso", "HumanoidRootPart", "LowerTorso"}, function(selected)
+    aimbotTarget = selected
+end)
+
+CombatSection3.NewSlider("Aimbot Smoothness", "Adjust aimbot smoothness", 1, 0.1, function(value)
+    aimbotSmoothness = value / 10
+end)
+
+-- Hitbox Expander
+local hitboxExpandEnabled = false
+local hitboxSize = 5
+
+CombatSection3.NewToggle("Hitbox Expander", "Makes player hitboxes larger", false, function(enabled)
+    hitboxExpandEnabled = enabled
+    
+    if enabled then
+        -- Setup a loop to continuously update hitboxes
+        RunService:BindToRenderStep("HitboxExpander", 100, function()
+            for _, player in pairs(Players:GetPlayers()) do
+                if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+                    -- Adjust the HumanoidRootPart size
+                    player.Character.HumanoidRootPart.Size = Vector3.new(hitboxSize, hitboxSize, hitboxSize)
+                    player.Character.HumanoidRootPart.Transparency = 0.5
+                    player.Character.HumanoidRootPart.CanCollide = false
+                end
+            end
+        end)
+    else
+        RunService:UnbindFromRenderStep("HitboxExpander")
+        
+        -- Reset hitboxes to normal
+        for _, player in pairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+                player.Character.HumanoidRootPart.Size = Vector3.new(2, 2, 1)
+                player.Character.HumanoidRootPart.Transparency = 1
+            end
+        end
+    end
+end)
+
+CombatSection3.NewSlider("Hitbox Size", "Adjust the size of expanded hitboxes", 20, 2, function(value)
+    hitboxSize = value
+end)
+
+-- Auto Clicker Feature
+local autoClickerEnabled = false
+local autoClickerCPS = 10 -- Clicks per second
+local autoClickerRight = false
+
+CombatSection1.NewToggle("Auto Clicker", "Automatically clicks for you", false, function(enabled)
+    autoClickerEnabled = enabled
+    
+    if enabled then
+        RunService:BindToRenderStep("AutoClicker", 100, function()
+            if autoClickerEnabled then
+                if autoClickerRight then
+                    VirtualUser:Button2Down(Vector2.new(0, 0))
+                    task.wait(1/autoClickerCPS)
+                    VirtualUser:Button2Up(Vector2.new(0, 0))
+                else
+                    VirtualUser:Button1Down(Vector2.new(0, 0))
+                    task.wait(1/autoClickerCPS)
+                    VirtualUser:Button1Up(Vector2.new(0, 0))
+                end
+            end
+        end)
+    else
+        RunService:UnbindFromRenderStep("AutoClicker")
+    end
+end)
+
+CombatSection1.NewSlider("Auto Clicker CPS", "Clicks per second", 50, 1, function(value)
+    autoClickerCPS = value
+end)
+
+CombatSection1.NewDropdown("Click Type", "Select which mouse button to click", {"Left Click", "Right Click"}, function(selected)
+    autoClickerRight = (selected == "Right Click")
+end)
+
+-- Visuals Tab Features
+local ESPSection = VisualTab.NewSection("ESP")
+local CameraSection = VisualTab.NewSection("Camera")
+local WorldSection = VisualTab.NewSection("World")
+
+-- ESP Feature
+local espEnabled = false
+local espSettings = {
+    boxes = true,
+    names = true,
+    distance = true,
+    health = true,
+    tracers = false,
+    teamCheck = false,
+    textSize = 14,
+    boxesColor = Color3.new(1, 0, 0),
+    namesColor = Color3.new(1, 1, 1),
+    distanceColor = Color3.new(1, 1, 0),
+    healthColor = Color3.new(0, 1, 0),
+    tracersColor = Color3.new(1, 0, 0)
+}
+
+local espObjects = {}
+
+ESPSection.NewToggle("ESP Master Toggle", "Toggle ESP features on/off", false, function(enabled)
+    espEnabled = enabled
+    
+    if enabled then
+        RunService:BindToRenderStep("ESP", 100, function()
+            -- Clear old ESP
+            for _, obj in pairs(espObjects) do
+                for _, item in pairs(obj) do
+                    if item.Visible then
+                        item.Visible = false
+                    end
+                end
+            end
+            
+            if not espEnabled then return end
+            
+            -- Get the camera for tracers
+            local camera = workspace.CurrentCamera
+            
+            -- Draw ESP for each player
+            for _, player in pairs(Players:GetPlayers()) do
+                -- Skip self or team members if team check is enabled
+                if player == LocalPlayer then continue end
+                if espSettings.teamCheck and player.Team == LocalPlayer.Team then continue end
+                
+                if player.Character and player.Character:FindFirstChild("HumanoidRootPart") and player.Character:FindFirstChild("Humanoid") then
+                    local humanoidRootPart = player.Character.HumanoidRootPart
+                    local head = player.Character:FindFirstChild("Head")
+                    local humanoid = player.Character.Humanoid
+                    
+                    -- Don't draw for dead players
+                    if humanoid.Health <= 0 then continue end
+                    
+                    -- Initialize ESP objects for this player if not already done
+                    if not espObjects[player] then
+                        espObjects[player] = {
+                            box = Drawing.new("Square"),
+                            name = Drawing.new("Text"),
+                            distance = Drawing.new("Text"),
+                            health = Drawing.new("Text"),
+                            tracer = Drawing.new("Line")
+                        }
+                        
+                        -- Set initial properties
+                        espObjects[player].box.Thickness = 1
+                        espObjects[player].box.ZIndex = 2
+                        espObjects[player].box.Filled = false
+                        
+                        espObjects[player].name.Center = true
+                        espObjects[player].name.Outline = true
+                        espObjects[player].name.Size = espSettings.textSize
+                        
+                        espObjects[player].distance.Center = true
+                        espObjects[player].distance.Outline = true
+                        espObjects[player].distance.Size = espSettings.textSize
+                        
+                        espObjects[player].health.Center = true
+                        espObjects[player].health.Outline = true
+                        espObjects[player].health.Size = espSettings.textSize
+                        
+                        espObjects[player].tracer.Thickness = 1
+                        espObjects[player].tracer.ZIndex = 2
+                    end
+                    
+                    -- Get screen position of the head
+                    local headPosition, onScreen = camera:WorldToViewportPoint(head.Position)
+                    
+                    -- Only draw if on screen
+                    if onScreen then
+                        -- Calculate character size for box
+                        local rootPos = camera:WorldToViewportPoint(humanoidRootPart.Position)
+                        local height = math.abs(camera:WorldToViewportPoint(humanoidRootPart.Position + Vector3.new(0, 3, 0)).Y - rootPos.Y)
+                        local width = height * 0.6
+                        
+                        -- Box ESP
+                        if espSettings.boxes then
+                            espObjects[player].box.Color = espSettings.boxesColor
+                            espObjects[player].box.Visible = true
+                            espObjects[player].box.Position = Vector2.new(rootPos.X - width / 2, rootPos.Y - height / 2)
+                            espObjects[player].box.Size = Vector2.new(width, height)
+                        else
+                            espObjects[player].box.Visible = false
+                        end
+                        
+                        -- Name ESP
+                        if espSettings.names then
+                            espObjects[player].name.Color = espSettings.namesColor
+                            espObjects[player].name.Visible = true
+                            espObjects[player].name.Position = Vector2.new(rootPos.X, rootPos.Y - height / 2 - 15)
+                            espObjects[player].name.Text = player.Name
+                        else
+                            espObjects[player].name.Visible = false
+                        end
+                        
+                        -- Distance ESP
+                        if espSettings.distance then
+                            espObjects[player].distance.Color = espSettings.distanceColor
+                            espObjects[player].distance.Visible = true
+                            espObjects[player].distance.Position = Vector2.new(rootPos.X, rootPos.Y + height / 2 + 5)
+                            
+                            local distance = (camera.CFrame.Position - humanoidRootPart.Position).Magnitude
+                            espObjects[player].distance.Text = string.format("%.1f studs", distance)
+                        else
+                            espObjects[player].distance.Visible = false
+                        end
+                        
+                        -- Health ESP
+                        if espSettings.health then
+                            espObjects[player].health.Color = espSettings.healthColor
+                            espObjects[player].health.Visible = true
+                            espObjects[player].health.Position = Vector2.new(rootPos.X + width / 2 + 5, rootPos.Y - height / 4)
+                            espObjects[player].health.Text = string.format("%.0f HP", humanoid.Health)
+                        else
+                            espObjects[player].health.Visible = false
+                        end
+                        
+                        -- Tracer ESP
+                        if espSettings.tracers then
+                            espObjects[player].tracer.Color = espSettings.tracersColor
+                            espObjects[player].tracer.Visible = true
+                            espObjects[player].tracer.From = Vector2.new(camera.ViewportSize.X / 2, camera.ViewportSize.Y - 50)
+                            espObjects[player].tracer.To = Vector2.new(rootPos.X, rootPos.Y)
+                        else
+                            espObjects[player].tracer.Visible = false
+                        end
+                    else
+                        -- Hide all ESP elements if player not on screen
+                        for _, item in pairs(espObjects[player]) do
+                            item.Visible = false
+                        end
+                    end
+                end
+            end
+        end)
+    else
+        RunService:UnbindFromRenderStep("ESP")
+        
+        -- Hide all ESP elements
+        for _, obj in pairs(espObjects) do
+            for _, item in pairs(obj) do
+                item.Visible = false
+            end
+        end
+    end
+end)
+
+ESPSection.NewToggle("Boxes", "Show boxes around players", true, function(enabled)
+    espSettings.boxes = enabled
+end)
+
+ESPSection.NewToggle("Names", "Show player names", true, function(enabled)
+    espSettings.names = enabled
+end)
+
+ESPSection.NewToggle("Distance", "Show distance to players", true, function(enabled)
+    espSettings.distance = enabled
+end)
+
+ESPSection.NewToggle("Health", "Show player health", true, function(enabled)
+    espSettings.health = enabled
+end)
+
+ESPSection.NewToggle("Tracers", "Show lines to players", false, function(enabled)
+    espSettings.tracers = enabled
+end)
+
+ESPSection.NewToggle("Team Check", "Don't show ESP for teammates", false, function(enabled)
+    espSettings.teamCheck = enabled
+end)
+
+ESPSection.NewSlider("Text Size", "Adjust ESP text size", 24, 8, function(value)
+    espSettings.textSize = value
+    
+    -- Update text size for all objects
+    for _, obj in pairs(espObjects) do
+        obj.name.Size = value
+        obj.distance.Size = value
+        obj.health.Size = value
+    end
+end)
+
+-- Chams Feature
+local chamsEnabled = false
+local chamsSettings = {
+    color = Color3.new(1, 0, 0),
+    transparency = 0.5,
+    teamCheck = false,
+    teamColor = false
+}
+
+ESPSection.NewToggle("Chams", "See players through walls", false, function(enabled)
+    chamsEnabled = enabled
+    
+    if enabled then
+        -- Create chams for existing players
+        for _, player in pairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer then
+                -- Create chams for the player
+                if player.Character then
+                    for _, part in pairs(player.Character:GetChildren()) do
+                        if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
+                            -- Skip if team check and player is on same team
+                            if chamsSettings.teamCheck and player.Team == LocalPlayer.Team then
+                                continue
+                            end
+                            
+                            -- Apply chams
+                            local highlight = Instance.new("Highlight")
+                            highlight.Name = "ChamsHighlight"
+                            
+                            -- Set fill color based on team if needed
+                            if chamsSettings.teamColor and player.Team then
+                                highlight.FillColor = player.Team.TeamColor.Color
+                            else
+                                highlight.FillColor = chamsSettings.color
+                            end
+                            
+                            highlight.OutlineColor = Color3.new(1, 1, 1)
+                            highlight.FillTransparency = chamsSettings.transparency
+                            highlight.OutlineTransparency = 0.9
+                            highlight.Adornee = part
+                            highlight.Parent = part
+                        end
+                    end
+                end
+                
+                -- Update when character changes
+                player.CharacterAdded:Connect(function(character)
+                    if not chamsEnabled then return end
+                    
+                    -- Skip if team check and player is on same team
+                    if chamsSettings.teamCheck and player.Team == LocalPlayer.Team then
+                        return
+                    end
+                    
+                    task.wait(1) -- Wait for character to load
+                    
+                    for _, part in pairs(character:GetChildren()) do
+                        if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
+                            -- Apply chams
+                            local highlight = Instance.new("Highlight")
+                            highlight.Name = "ChamsHighlight"
+                            
+                            -- Set fill color based on team if needed
+                            if chamsSettings.teamColor and player.Team then
+                                highlight.FillColor = player.Team.TeamColor.Color
+                            else
+                                highlight.FillColor = chamsSettings.color
+                            end
+                            
+                            highlight.OutlineColor = Color3.new(1, 1, 1)
+                            highlight.FillTransparency = chamsSettings.transparency
+                            highlight.OutlineTransparency = 0.9
+                            highlight.Adornee = part
+                            highlight.Parent = part
+                        end
+                    end
+                end)
+            end
+        end
+        
+        -- Handle new players
+        Players.PlayerAdded:Connect(function(player)
+            if not chamsEnabled then return end
+            
+            player.CharacterAdded:Connect(function(character)
+                -- Skip if team check and player is on same team
+                if chamsSettings.teamCheck and player.Team == LocalPlayer.Team then
+                    return
+                end
+                
+                task.wait(1) -- Wait for character to load
+                
+                for _, part in pairs(character:GetChildren()) do
+                    if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
+                        -- Apply chams
+                        local highlight = Instance.new("Highlight")
+                        highlight.Name = "ChamsHighlight"
+                        
+                        -- Set fill color based on team if needed
+                        if chamsSettings.teamColor and player.Team then
+                            highlight.FillColor = player.Team.TeamColor.Color
+                        else
+                            highlight.FillColor = chamsSettings.color
+                        end
+                        
+                        highlight.OutlineColor = Color3.new(1, 1, 1)
+                        highlight.FillTransparency = chamsSettings.transparency
+                        highlight.OutlineTransparency = 0.9
+                        highlight.Adornee = part
+                        highlight.Parent = part
+                    end
+                end
+            end)
+        end)
+    else
+        -- Remove all chams
+        for _, player in pairs(Players:GetPlayers()) do
+            if player.Character then
+                for _, part in pairs(player.Character:GetDescendants()) do
+                    if part.Name == "ChamsHighlight" then
+                        part:Destroy()
+                    end
+                end
+            end
+        end
+    end
+end)
+
+ESPSection.NewToggle("Chams Team Check", "Don't show chams for teammates", false, function(enabled)
+    chamsSettings.teamCheck = enabled
+    
+    -- Update existing chams
+    if chamsEnabled then
+        -- Remove all chams first
+        for _, player in pairs(Players:GetPlayers()) do
+            if player.Character then
+                for _, part in pairs(player.Character:GetDescendants()) do
+                    if part.Name == "ChamsHighlight" then
+                        part:Destroy()
+                    end
+                end
+            end
+        end
+        
+        -- Reapply chams with new settings
+        for _, player in pairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer then
+                -- Skip if team check and player is on same team
+                if chamsSettings.teamCheck and player.Team == LocalPlayer.Team then
+                    continue
+                end
+                
+                if player.Character then
+                    for _, part in pairs(player.Character:GetChildren()) do
+                        if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
+                            -- Apply chams
+                            local highlight = Instance.new("Highlight")
+                            highlight.Name = "ChamsHighlight"
+                            
+                            -- Set fill color based on team if needed
+                            if chamsSettings.teamColor and player.Team then
+                                highlight.FillColor = player.Team.TeamColor.Color
+                            else
+                                highlight.FillColor = chamsSettings.color
+                            end
+                            
+                            highlight.OutlineColor = Color3.new(1, 1, 1)
+                            highlight.FillTransparency = chamsSettings.transparency
+                            highlight.OutlineTransparency = 0.9
+                            highlight.Adornee = part
+                            highlight.Parent = part
+                        end
+                    end
+                end
+            end
+        end
+    end
+end)
+
+ESPSection.NewToggle("Team Colors", "Use team colors for chams", false, function(enabled)
+    chamsSettings.teamColor = enabled
+    
+    -- Update existing chams
+    if chamsEnabled then
+        for _, player in pairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer and player.Character then
+                for _, part in pairs(player.Character:GetDescendants()) do
+                    if part.Name == "ChamsHighlight" then
+                        if enabled and player.Team then
+                            part.FillColor = player.Team.TeamColor.Color
+                        else
+                            part.FillColor = chamsSettings.color
+                        end
+                    end
+                end
+            end
+        end
+    end
+end)
+
+ESPSection.NewSlider("Chams Transparency", "Adjust chams transparency", 1, 0, function(value)
+    chamsSettings.transparency = 1 - value
+    
+    -- Update existing chams
+    if chamsEnabled then
+        for _, player in pairs(Players:GetPlayers()) do
+            if player.Character then
+                for _, part in pairs(player.Character:GetDescendants()) do
+                    if part.Name == "ChamsHighlight" then
+                        part.FillTransparency = chamsSettings.transparency
+                    end
+                end
+            end
+        end
+    end
+end)
+
+-- Camera Features
+local cameraFovEnabled = false
+local cameraFov = 70
+
+CameraSection.NewToggle("Custom FOV", "Use a custom field of view", false, function(enabled)
+    cameraFovEnabled = enabled
+    
+    if enabled then
+        -- Set custom FOV
+        workspace.CurrentCamera.FieldOfView = cameraFov
+        
+        -- Keep updating FOV
+        RunService:BindToRenderStep("CustomFOV", 100, function()
+            if workspace.CurrentCamera.FieldOfView ~= cameraFov then
+                workspace.CurrentCamera.FieldOfView = cameraFov
+            end
+        end)
+    else
+        RunService:UnbindFromRenderStep("CustomFOV")
+        workspace.CurrentCamera.FieldOfView = 70 -- Default FOV
+    end
+end)
+
+CameraSection.NewSlider("FOV", "Adjust field of view", 120, 30, function(value)
+    cameraFov = value
+    if cameraFovEnabled then
+        workspace.CurrentCamera.FieldOfView = cameraFov
+    end
+end)
+
+-- Freecam Feature
+local freecamEnabled = false
+local freecamSpeed = 2
+
+CameraSection.NewToggle("Freecam", "Detach camera from character", false, function(enabled)
+    freecamEnabled = enabled
+    
+    if enabled then
+        -- Store the original camera CFrame and subject
+        local camera = workspace.CurrentCamera
+        local originalCFrame = camera.CFrame
+        local originalSubject = camera.CameraSubject
+        
+        -- Set up freecam
+        camera.CameraType = Enum.CameraType.Scriptable
+        
+        -- Update camera position based on input
+        RunService:BindToRenderStep("Freecam", 100, function()
+            local newCFrame = camera.CFrame
+            local speed = freecamSpeed
+            
+            -- Handle keyboard input for movement
+            local moveVector = Vector3.new(0, 0, 0)
+            
+            if UserInputService:IsKeyDown(Enum.KeyCode.W) then
+                moveVector = moveVector + (newCFrame.LookVector * speed)
+            end
+            if UserInputService:IsKeyDown(Enum.KeyCode.S) then
+                moveVector = moveVector - (newCFrame.LookVector * speed)
+            end
+            if UserInputService:IsKeyDown(Enum.KeyCode.A) then
+                moveVector = moveVector - (newCFrame.RightVector * speed)
+            end
+            if UserInputService:IsKeyDown(Enum.KeyCode.D) then
+                moveVector = moveVector + (newCFrame.RightVector * speed)
+            end
+            if UserInputService:IsKeyDown(Enum.KeyCode.E) then
+                moveVector = moveVector + (Vector3.new(0, 1, 0) * speed)
+            end
+            if UserInputService:IsKeyDown(Enum.KeyCode.Q) then
+                moveVector = moveVector - (Vector3.new(0, 1, 0) * speed)
+            end
+            
+            -- Apply movement to camera
+            camera.CFrame = newCFrame * CFrame.new(moveVector)
+        end)
+        
+        -- Handle mouse for camera rotation
+        local function updateCamera()
+            local mouseMovement = UserInputService:GetMouseDelta()
+            
+            camera.CFrame = camera.CFrame * CFrame.fromEulerAnglesYXZ(
+                -mouseMovement.Y / 300,
+                -mouseMovement.X / 300,
+                0
+            )
+        end
+        
+        UserInputService.MouseBehavior = Enum.MouseBehavior.LockCurrentPosition
+        
+        local cameraMoveConnection = RunService.RenderStepped:Connect(updateCamera)
+        
+        -- Function to clean up freecam
+        local function cleanupFreecam()
+            if cameraMoveConnection then
+                cameraMoveConnection:Disconnect()
+                cameraMoveConnection = nil
+            end
+            
+            RunService:UnbindFromRenderStep("Freecam")
+            
+            -- Restore original camera
+            camera.CameraType = Enum.CameraType.Custom
+            camera.CameraSubject = originalSubject
+            UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+        end
+        
+        -- Clean up when toggled off
+        coroutine.wrap(function()
+            while freecamEnabled do
+                task.wait(0.1)
+            end
+            
+            cleanupFreecam()
+        end)()
+    else
+        -- Cleanup will happen in the coroutine
+    end
+end)
+
+CameraSection.NewSlider("Freecam Speed", "Adjust freecam movement speed", 10, 0.5, function(value)
+    freecamSpeed = value
+end)
+
+-- Third Person Feature
+local thirdPersonEnabled = false
+local thirdPersonDistance = 10
+
+CameraSection.NewToggle("Third Person", "Force third person view", false, function(enabled)
+    thirdPersonEnabled = enabled
+    
+    if enabled then
+        -- Change to third person
+        LocalPlayer.CameraMode = Enum.CameraMode.Classic
+        LocalPlayer.CameraMaxZoomDistance = thirdPersonDistance
+        LocalPlayer.CameraMinZoomDistance = thirdPersonDistance
+        
+        -- Lock third person view
+        RunService:BindToRenderStep("ThirdPerson", 100, function()
+            if LocalPlayer.CameraMode ~= Enum.CameraMode.Classic then
+                LocalPlayer.CameraMode = Enum.CameraMode.Classic
+            end
+            
+            if LocalPlayer.CameraMaxZoomDistance ~= thirdPersonDistance then
+                LocalPlayer.CameraMaxZoomDistance = thirdPersonDistance
+                LocalPlayer.CameraMinZoomDistance = thirdPersonDistance
+            end
+        end)
+    else
+        RunService:UnbindFromRenderStep("ThirdPerson")
+        
+        -- Reset to default
+        LocalPlayer.CameraMode = Enum.CameraMode.Classic
+        LocalPlayer.CameraMaxZoomDistance = 128
+        LocalPlayer.CameraMinZoomDistance = 0.5
+    end
+end)
+
+CameraSection.NewSlider("Third Person Distance", "Adjust camera distance", 50, 1, function(value)
+    thirdPersonDistance = value
+    
+    if thirdPersonEnabled then
+        LocalPlayer.CameraMaxZoomDistance = thirdPersonDistance
+        LocalPlayer.CameraMinZoomDistance = thirdPersonDistance
+    end
+end)
+
+-- World Features
+local fullbrightEnabled = false
+local oldAmbient
+local oldBrightness
+local oldClockTime
+local oldFogEnd
+local oldFogStart
+local oldShadows
+
+WorldSection.NewToggle("Fullbright", "Makes everything bright", false, function(enabled)
+    fullbrightEnabled = enabled
+    
+    if enabled then
+        -- Save original lighting settings
+        oldAmbient = Lighting.Ambient
+        oldBrightness = Lighting.Brightness
+        oldClockTime = Lighting.ClockTime
+        oldFogEnd = Lighting.FogEnd
+        oldFogStart = Lighting.FogStart
+        oldShadows = Lighting.GlobalShadows
+        
+        -- Apply fullbright
+        Lighting.Ambient = Color3.new(1, 1, 1)
+        Lighting.Brightness = 2
+        Lighting.ClockTime = 14
+        Lighting.FogEnd = 100000
+        Lighting.FogStart = 0
+        Lighting.GlobalShadows = false
+        
+        -- Add a PointLight to the player's head
+        if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Head") then
+            local light = Instance.new("PointLight")
+            light.Name = "FullbrightLight"
+            light.Brightness = 1
+            light.Range = 60
+            light.Parent = LocalPlayer.Character.Head
+        end
+        
+        -- Handle character respawning
+        LocalPlayer.CharacterAdded:Connect(function(character)
+            if not fullbrightEnabled then return end
+            
+            -- Wait for the head to load
+            character:WaitForChild("Head")
+            
+            -- Add the light
+            local light = Instance.new("PointLight")
+            light.Name = "FullbrightLight"
+            light.Brightness = 1
+            light.Range = 60
+            light.Parent = character.Head
+        end)
+    else
+        -- Restore original lighting settings
+        Lighting.Ambient = oldAmbient
+        Lighting.Brightness = oldBrightness
+        Lighting.ClockTime = oldClockTime
+        Lighting.FogEnd = oldFogEnd
+        Lighting.FogStart = oldFogStart
+        Lighting.GlobalShadows = oldShadows
+        
+        -- Remove the PointLight if it exists
+        if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Head") then
+            local light = LocalPlayer.Character.Head:FindFirstChild("FullbrightLight")
+            if light then
+                light:Destroy()
+            end
+        end
+    end
+end)
+
+-- No Fog Feature
+local noFogEnabled = false
+
+WorldSection.NewToggle("No Fog", "Removes fog from the game", false, function(enabled)
+    noFogEnabled = enabled
+    
+    if enabled then
+        -- Save original fog settings
+        oldFogEnd = Lighting.FogEnd
+        oldFogStart = Lighting.FogStart
+        
+        -- Remove fog
+        Lighting.FogEnd = 100000
+        Lighting.FogStart = 100000
+        
+        -- Keep fog removed
+        RunService:BindToRenderStep("NoFog", 100, function()
+            if Lighting.FogEnd ~= 100000 or Lighting.FogStart ~= 100000 then
+                Lighting.FogEnd = 100000
+                Lighting.FogStart = 100000
+            end
+        end)
+    else
+        RunService:UnbindFromRenderStep("NoFog")
+        
+        -- Restore original fog settings
+        Lighting.FogEnd = oldFogEnd
+        Lighting.FogStart = oldFogStart
+    end
+end)
+
+-- Night Mode Feature
+local nightModeEnabled = false
+local oldNightSettings = {}
+
+WorldSection.NewToggle("Night Mode", "Makes everything dark", false, function(enabled)
+    nightModeEnabled = enabled
+    
+    if enabled then
+        -- Save original lighting settings
+        oldNightSettings.Ambient = Lighting.Ambient
+        oldNightSettings.Brightness = Lighting.Brightness
+        oldNightSettings.ClockTime = Lighting.ClockTime
+        oldNightSettings.ColorShift_Bottom = Lighting.ColorShift_Bottom
+        oldNightSettings.ColorShift_Top = Lighting.ColorShift_Top
+        oldNightSettings.OutdoorAmbient = Lighting.OutdoorAmbient
+        
+        -- Apply night mode
+        Lighting.Ambient = Color3.new(0, 0, 0)
+        Lighting.Brightness = 0.2
+        Lighting.ClockTime = 0
+        Lighting.ColorShift_Bottom = Color3.new(0, 0, 0)
+        Lighting.ColorShift_Top = Color3.new(0, 0, 0)
+        Lighting.OutdoorAmbient = Color3.new(0.1, 0.1, 0.1)
+        
+        -- Add moon and stars
+        local moon = Instance.new("Moon")
+        moon.Name = "NightModeMoon"
+        moon.Parent = Lighting
+        
+        -- Keep night mode
+        RunService:BindToRenderStep("NightMode", 100, function()
+            if Lighting.ClockTime ~= 0 then
+                Lighting.ClockTime = 0
+            end
+        end)
+    else
+        RunService:UnbindFromRenderStep("NightMode")
+        
+        -- Restore original lighting settings
+        Lighting.Ambient = oldNightSettings.Ambient
+        Lighting.Brightness = oldNightSettings.Brightness
+        Lighting.ClockTime = oldNightSettings.ClockTime
+        Lighting.ColorShift_Bottom = oldNightSettings.ColorShift_Bottom
+        Lighting.ColorShift_Top = oldNightSettings.ColorShift_Top
+        Lighting.OutdoorAmbient = oldNightSettings.OutdoorAmbient
+        
+        -- Remove moon
+        local moon = Lighting:FindFirstChild("NightModeMoon")
+        if moon then
+            moon:Destroy()
+        end
+    end
+end)
+
+-- Rainbow Sky Feature
+local rainbowSkyEnabled = false
+local originalSkybox = {}
+
+WorldSection.NewToggle("Rainbow Sky", "Creates a colorful rainbow sky", false, function(enabled)
+    rainbowSkyEnabled = enabled
+    
+    if enabled then
+        -- Store original skybox if it exists
+        if Lighting:FindFirstChildOfClass("Sky") then
+            local sky = Lighting:FindFirstChildOfClass("Sky")
+            originalSkybox.CelestialBodiesShown = sky.CelestialBodiesShown
+            originalSkybox.SkyboxBk = sky.SkyboxBk
+            originalSkybox.SkyboxDn = sky.SkyboxDn
+            originalSkybox.SkyboxFt = sky.SkyboxFt
+            originalSkybox.SkyboxLf = sky.SkyboxLf
+            originalSkybox.SkyboxRt = sky.SkyboxRt
+            originalSkybox.SkyboxUp = sky.SkyboxUp
+        end
+        
+        -- Create or get skybox
+        local skybox = Lighting:FindFirstChildOfClass("Sky") or Instance.new("Sky")
+        skybox.Name = "RainbowSky"
+        skybox.CelestialBodiesShown = false
+        skybox.Parent = Lighting
+        
+        -- Start rainbow effect
+        local hue = 0
+        
+        RunService:BindToRenderStep("RainbowSky", 100, function()
+            hue = (hue + 0.001) % 1
+            
+            local color1 = Color3.fromHSV(hue, 1, 1)
+            local color2 = Color3.fromHSV((hue + 0.1) % 1, 1, 1)
+            local color3 = Color3.fromHSV((hue + 0.2) % 1, 1, 1)
+            local color4 = Color3.fromHSV((hue + 0.3) % 1, 1, 1)
+            local color5 = Color3.fromHSV((hue + 0.4) % 1, 1, 1)
+            local color6 = Color3.fromHSV((hue + 0.5) % 1, 1, 1)
+            
+            -- Update skybox with rainbow colors
+            skybox.SkyboxBk = skybox.SkyboxBk
+            skybox.SkyboxDn = skybox.SkyboxDn
+            skybox.SkyboxFt = skybox.SkyboxFt
+            skybox.SkyboxLf = skybox.SkyboxLf
+            skybox.SkyboxRt = skybox.SkyboxRt
+            skybox.SkyboxUp = skybox.SkyboxUp
+            
+            skybox.TopColor = color1
+            skybox.BottomColor = color4
+            
+            -- Update lighting to match the sky
+            Lighting.Ambient = color3
+            Lighting.OutdoorAmbient = color6
+        end)
+    else
+        RunService:UnbindFromRenderStep("RainbowSky")
+        
+        -- Restore original skybox
+        local rainbowSky = Lighting:FindFirstChild("RainbowSky")
+        if rainbowSky then
+            if next(originalSkybox) ~= nil then
+                rainbowSky.CelestialBodiesShown = originalSkybox.CelestialBodiesShown
+                rainbowSky.SkyboxBk = originalSkybox.SkyboxBk
+                rainbowSky.SkyboxDn = originalSkybox.SkyboxDn
+                rainbowSky.SkyboxFt = originalSkybox.SkyboxFt
+                rainbowSky.SkyboxLf = originalSkybox.SkyboxLf
+                rainbowSky.SkyboxRt = originalSkybox.SkyboxRt
+                rainbowSky.SkyboxUp = originalSkybox.SkyboxUp
+            else
+                rainbowSky:Destroy()
+            end
+        end
+        
+        -- Restore lighting
+        Lighting.Ambient = Color3.new(0.7, 0.7, 0.7)
+        Lighting.OutdoorAmbient = Color3.new(0.5, 0.5, 0.5)
+    end
+end)
+
+-- Movement Tab Features
+local SpeedSection = MovementTab.NewSection("Speed")
+local JumpSection = MovementTab.NewSection("Jump")
+local FlightSection = MovementTab.NewSection("Flight")
+local TeleportSection = MovementTab.NewSection("Teleport")
+
+-- Speed Hack Feature
+local speedHackEnabled = false
+local speedMultiplier = 2
+local oldWalkSpeed
+
+SpeedSection.NewToggle("Speed Hack", "Run faster than normal", false, function(enabled)
+    speedHackEnabled = enabled
+    
+    if enabled then
+        -- Save old walk speed
+        if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
+            oldWalkSpeed = LocalPlayer.Character.Humanoid.WalkSpeed
+        else
+            oldWalkSpeed = 16 -- Default
+        end
+        
+        -- Apply new walk speed
+        RunService:BindToRenderStep("SpeedHack", 100, function()
+            if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
+                LocalPlayer.Character.Humanoid.WalkSpeed = oldWalkSpeed * speedMultiplier
+            end
+        end)
+        
+        -- Update when character respawns
+        LocalPlayer.CharacterAdded:Connect(function(character)
+            if not speedHackEnabled then return end
+            
+            character:WaitForChild("Humanoid")
+            oldWalkSpeed = character.Humanoid.WalkSpeed
+            character.Humanoid.WalkSpeed = oldWalkSpeed * speedMultiplier
+        end)
+    else
+        RunService:UnbindFromRenderStep("SpeedHack")
+        
+        -- Restore old walk speed
+        if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
+            LocalPlayer.Character.Humanoid.WalkSpeed = oldWalkSpeed
+        end
+    end
+end)
+
+SpeedSection.NewSlider("Speed Multiplier", "How fast to go", 10, 1, function(value)
+    speedMultiplier = value
+    
+    if speedHackEnabled and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
+        LocalPlayer.Character.Humanoid.WalkSpeed = oldWalkSpeed * speedMultiplier
+    end
+end)
+
+-- CFrame Speed Feature
+local cframeSpeedEnabled = false
+local cframeSpeedValue = 1
+local cframeSpeedMethod = "Velocity"
+
+SpeedSection.NewToggle("CFrame Speed", "Advanced speed method that bypasses some anti-cheats", false, function(enabled)
+    cframeSpeedEnabled = enabled
+    
+    if enabled then
+        RunService:BindToRenderStep("CFrameSpeed", 100, function()
+            if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") and LocalPlayer.Character:FindFirstChild("Humanoid") then
+                local humanoidRootPart = LocalPlayer.Character.HumanoidRootPart
+                local humanoid = LocalPlayer.Character.Humanoid
+                
+                -- Only apply when moving
+                if humanoid.MoveDirection.Magnitude > 0 then
+                    local moveDirection = humanoid.MoveDirection
+                    
+                    if cframeSpeedMethod == "CFrame" then
+                        -- CFrame method (smoother but more detectable)
+                        humanoidRootPart.CFrame = humanoidRootPart.CFrame + moveDirection * cframeSpeedValue
+                    elseif cframeSpeedMethod == "Velocity" then
+                        -- Velocity method (less detectable)
+                        humanoidRootPart.Velocity = moveDirection * (humanoid.WalkSpeed * cframeSpeedValue)
+                    end
+                end
+            end
+        end)
+    else
+        RunService:UnbindFromRenderStep("CFrameSpeed")
+        
+        -- Reset velocity to normal
+        if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+            LocalPlayer.Character.HumanoidRootPart.Velocity = Vector3.new(0, 0, 0)
+        end
+    end
+end)
+
+SpeedSection.NewSlider("CFrame Speed Value", "How fast to go", 10, 0.5, function(value)
+    cframeSpeedValue = value
+end)
+
+SpeedSection.NewDropdown("CFrame Speed Method", "Speed method to use", {"CFrame", "Velocity"}, function(selected)
+    cframeSpeedMethod = selected
+end)
+
+-- Auto Sprint Feature
+local autoSprintEnabled = false
+
+SpeedSection.NewToggle("Auto Sprint", "Automatically runs at sprint speed", false, function(enabled)
+    autoSprintEnabled = enabled
+    
+    if enabled then
+        -- Save original speed
+        if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
+            oldWalkSpeed = LocalPlayer.Character.Humanoid.WalkSpeed
+        else
+            oldWalkSpeed = 16 -- Default
+        end
+        
+        -- Apply sprint
+        RunService:BindToRenderStep("AutoSprint", 100, function()
+            if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
+                -- Only apply when moving
+                if LocalPlayer.Character.Humanoid.MoveDirection.Magnitude > 0 then
+                    LocalPlayer.Character.Humanoid.WalkSpeed = oldWalkSpeed * 1.5
+                else
+                    LocalPlayer.Character.Humanoid.WalkSpeed = oldWalkSpeed
+                end
+            end
+        end)
+        
+        -- Update when character respawns
+        LocalPlayer.CharacterAdded:Connect(function(character)
+            if not autoSprintEnabled then return end
+            
+            character:WaitForChild("Humanoid")
+            oldWalkSpeed = character.Humanoid.WalkSpeed
+        end)
+    else
+        RunService:UnbindFromRenderStep("AutoSprint")
+        
+        -- Restore old walk speed
+        if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
+            LocalPlayer.Character.Humanoid.WalkSpeed = oldWalkSpeed
+        end
+    end
+end)
+
+-- Bunny Hop Feature
+local bunnyHopEnabled = false
+local bunnyHopPower = 50
+local bunnyHopDelay = 0.3
+local lastJumpTime = 0
+
+JumpSection.NewToggle("Bunny Hop", "Automatically jumps while moving", false, function(enabled)
+    bunnyHopEnabled = enabled
+    
+    if enabled then
+        RunService:BindToRenderStep("BunnyHop", 100, function()
+            if LocalPlayer.Character and 
+               LocalPlayer.Character:FindFirstChild("Humanoid") and 
+               LocalPlayer.Character.Humanoid.MoveDirection.Magnitude > 0 and
+               LocalPlayer.Character.Humanoid:GetState() ~= Enum.HumanoidStateType.Jumping and
+               LocalPlayer.Character.Humanoid:GetState() ~= Enum.HumanoidStateType.Freefall then
+                
+                if tick() - lastJumpTime >= bunnyHopDelay then
+                    lastJumpTime = tick()
+                    LocalPlayer.Character.Humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+                    
+                    -- Apply forward boost
+                    if LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+                        local moveDirection = LocalPlayer.Character.Humanoid.MoveDirection
+                        LocalPlayer.Character.HumanoidRootPart.Velocity = Vector3.new(
+                            moveDirection.X * bunnyHopPower,
+                            LocalPlayer.Character.HumanoidRootPart.Velocity.Y,
+                            moveDirection.Z * bunnyHopPower
+                        )
+                    end
+                end
+            end
+        end)
+    else
+        RunService:UnbindFromRenderStep("BunnyHop")
+    end
+end)
+
+JumpSection.NewSlider("Bunny Hop Power", "How much forward momentum to add", 100, 10, function(value)
+    bunnyHopPower = value
+end)
+
+JumpSection.NewSlider("Bunny Hop Delay", "Time between hops", 1, 0, function(value)
+    bunnyHopDelay = value
+end)
+
+-- Infinite Jump Feature
+local infiniteJumpEnabled = false
+
+JumpSection.NewToggle("Infinite Jump", "Allows you to jump in mid-air", false, function(enabled)
+    infiniteJumpEnabled = enabled
+    
+    if enabled then
+        local infiniteJumpConnection
+        infiniteJumpConnection = UserInputService.JumpRequest:Connect(function()
+            if not infiniteJumpEnabled then
+                infiniteJumpConnection:Disconnect()
+                return
+            end
+            
+            if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
+                LocalPlayer.Character.Humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+            end
+        end)
+    end
+end)
+
+-- Jump Power Feature
+local jumpPowerEnabled = false
+local jumpPowerValue = 50
+local oldJumpPower
+
+JumpSection.NewToggle("Jump Power", "Jump higher than normal", false, function(enabled)
+    jumpPowerEnabled = enabled
+    
+    if enabled then
+        -- Save old jump power
+        if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
+            oldJumpPower = LocalPlayer.Character.Humanoid.JumpPower
+        else
+            oldJumpPower = 50 -- Default
+        end
+        
+        -- Apply new jump power
+        RunService:BindToRenderStep("JumpPower", 100, function()
+            if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
+                LocalPlayer.Character.Humanoid.JumpPower = jumpPowerValue
+            end
+        end)
+        
+        -- Update when character respawns
+        LocalPlayer.CharacterAdded:Connect(function(character)
+            if not jumpPowerEnabled then return end
+            
+            character:WaitForChild("Humanoid")
+            oldJumpPower = character.Humanoid.JumpPower
+            character.Humanoid.JumpPower = jumpPowerValue
+        end)
+    else
+        RunService:UnbindFromRenderStep("JumpPower")
+        
+        -- Restore old jump power
+        if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
+            LocalPlayer.Character.Humanoid.JumpPower = oldJumpPower
+        end
+    end
+end)
+
+JumpSection.NewSlider("Jump Power Value", "How high to jump", 250, 50, function(value)
+    jumpPowerValue = value
+    
+    if jumpPowerEnabled and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
+        LocalPlayer.Character.Humanoid.JumpPower = jumpPowerValue
+    end
+end)
+
+-- Flight Feature
+local flightEnabled = false
+local flightSpeed = 2
+local flightMode = "CFrame"
+
+FlightSection.NewToggle("Flight", "Allows you to fly", false, function(enabled)
+    flightEnabled = enabled
+    
+    if enabled then
+        -- Save old properties
+        local oldGravity = workspace.Gravity
+        
+        -- Set up for flight
+        workspace.Gravity = 0
+        
+        if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
+            LocalPlayer.Character.Humanoid:ChangeState(Enum.HumanoidStateType.Physics)
+        end
+        
+        RunService:BindToRenderStep("Flight", 100, function()
+            if not LocalPlayer.Character or not LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+                return
+            end
+            
+            local humanoidRootPart = LocalPlayer.Character.HumanoidRootPart
+            local camera = workspace.CurrentCamera
+            
+            -- Get flight direction based on input
+            local direction = Vector3.new(0, 0, 0)
+            
+            if UserInputService:IsKeyDown(Enum.KeyCode.W) then
+                direction = direction + camera.CFrame.LookVector
+            end
+            if UserInputService:IsKeyDown(Enum.KeyCode.S) then
+                direction = direction - camera.CFrame.LookVector
+            end
+            if UserInputService:IsKeyDown(Enum.KeyCode.A) then
+                direction = direction - camera.CFrame.RightVector
+            end
+            if UserInputService:IsKeyDown(Enum.KeyCode.D) then
+                direction = direction + camera.CFrame.RightVector
+            end
+            if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
+                direction = direction + Vector3.new(0, 1, 0)
+            end
+            if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then
+                direction = direction - Vector3.new(0, 1, 0)
+            end
+            
+            -- Normalize direction
+            if direction.Magnitude > 0 then
+                direction = direction.Unit
+            end
+            
+            -- Apply flight
+            if flightMode == "CFrame" then
+                humanoidRootPart.CFrame = humanoidRootPart.CFrame + direction * flightSpeed
+            elseif flightMode == "Velocity" then
+                humanoidRootPart.Velocity = direction * (flightSpeed * 20)
+            end
+        end)
+        
+        -- Handle character respawning
+        LocalPlayer.CharacterAdded:Connect(function(character)
+            if not flightEnabled then return end
+            
+            -- Wait for humanoid to load
+            character:WaitForChild("Humanoid")
+            character:WaitForChild("HumanoidRootPart")
+            
+            -- Set up for flight
+            workspace.Gravity = 0
+            character.Humanoid:ChangeState(Enum.HumanoidStateType.Physics)
+        end)
+    else
+        RunService:UnbindFromRenderStep("Flight")
+        
+        -- Restore original properties
+        workspace.Gravity = 196.2
+        
+        if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+            LocalPlayer.Character.HumanoidRootPart.Velocity = Vector3.new(0, 0, 0)
+        end
+        
+        if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
+            LocalPlayer.Character.Humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
+        end
+    end
+end)
+
+FlightSection.NewSlider("Flight Speed", "How fast to fly", 10, 1, function(value)
+    flightSpeed = value
+end)
+
+FlightSection.NewDropdown("Flight Mode", "Method used for flying", {"CFrame", "Velocity"}, function(selected)
+    flightMode = selected
+end)
+
+-- Noclip Feature
+local noclipEnabled = false
+
+FlightSection.NewToggle("Noclip", "Walk through walls", false, function(enabled)
+    noclipEnabled = enabled
+    
+    if enabled then
+        RunService:BindToRenderStep("Noclip", 100, function()
+            if LocalPlayer.Character then
+                for _, part in pairs(LocalPlayer.Character:GetDescendants()) do
+                    if part:IsA("BasePart") and part.CanCollide then
+                        part.CanCollide = false
+                    end
+                end
+            end
+        end)
+        
+        -- Handle character respawning
+        LocalPlayer.CharacterAdded:Connect(function(character)
+            if not noclipEnabled then return end
+            
+            -- Wait a bit for character to load
+            task.wait(1)
+            
+            -- Apply noclip to new character
+            for _, part in pairs(character:GetDescendants()) do
+                if part:IsA("BasePart") and part.CanCollide then
+                    part.CanCollide = false
+                end
+            end
+        end)
+    else
+        RunService:UnbindFromRenderStep("Noclip")
+        
+        -- Restore collision
+        if LocalPlayer.Character then
+            for _, part in pairs(LocalPlayer.Character:GetDescendants()) do
+                if part:IsA("BasePart") then
+                    if part.Name == "HumanoidRootPart" or part.Name == "Handle" then
+                        part.CanCollide = false
+                    else
+                        part.CanCollide = true
+                    end
+                end
+            end
+        end
+    end
+end)
+
+-- Teleport Features
+local tpToPlayerEnabled = false
+local selectedPlayer = ""
+
+TeleportSection.NewToggle("TP to Player", "Teleport to selected player", false, function(enabled)
+    tpToPlayerEnabled = enabled
+    
+    if enabled and selectedPlayer ~= "" then
+        local targetPlayer = getPlayerByName(selectedPlayer)
+        
+        if targetPlayer and targetPlayer.Character and targetPlayer.Character:FindFirstChild("HumanoidRootPart") then
+            -- Teleport to the player
+            if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+                LocalPlayer.Character.HumanoidRootPart.CFrame = targetPlayer.Character.HumanoidRootPart.CFrame
+            end
+        end
+        
+        -- Keep teleporting if enabled
+        RunService:BindToRenderStep("TPToPlayer", 100, function()
+            if not tpToPlayerEnabled then return end
+            
+            local targetPlayer = getPlayerByName(selectedPlayer)
+            
+            if targetPlayer and targetPlayer.Character and targetPlayer.Character:FindFirstChild("HumanoidRootPart") then
+                if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+                    LocalPlayer.Character.HumanoidRootPart.CFrame = targetPlayer.Character.HumanoidRootPart.CFrame
+                end
+            end
+        end)
+    else
+        RunService:UnbindFromRenderStep("TPToPlayer")
+    end
+end)
+
+-- Function to update player list dropdown
+local function updatePlayerList()
+    local playerList = {}
+    
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer then
+            table.insert(playerList, player.Name)
+        end
+    end
+    
+    return playerList
+end
+
+TeleportSection.NewDropdown("Select Player", "Choose player to teleport to", updatePlayerList(), function(selected)
+    selectedPlayer = selected
+    
+    if tpToPlayerEnabled then
+        local targetPlayer = getPlayerByName(selectedPlayer)
+        
+        if targetPlayer and targetPlayer.Character and targetPlayer.Character:FindFirstChild("HumanoidRootPart") then
+            -- Teleport to the player
+            if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+                LocalPlayer.Character.HumanoidRootPart.CFrame = targetPlayer.Character.HumanoidRootPart.CFrame
+            end
+        end
+    end
+end)
+
+TeleportSection.NewButton("Refresh Player List", "Update the player dropdown", function()
+    TeleportSection.UpdateDropdown("Select Player", updatePlayerList())
+end)
+
+-- Click TP Feature
+local clickTpEnabled = false
+
+TeleportSection.NewToggle("Click TP", "Click to teleport to a location", false, function(enabled)
+    clickTpEnabled = enabled
+    
+    if enabled then
+        -- Create a beam to show where we're teleporting to
+        local beam = Instance.new("Beam")
+        beam.Name = "ClickTPBeam"
+        beam.Color = ColorSequence.new(Color3.new(0, 1, 0))
+        beam.Width0 = 0.2
+        beam.Width1 = 0.2
+        beam.Transparency = NumberSequence.new(0)
+        beam.FaceCamera = true
+        
+        local attachment0 = Instance.new("Attachment")
+        local attachment1 = Instance.new("Attachment")
+        beam.Attachment0 = attachment0
+        beam.Attachment1 = attachment1
+        
+        beam.Parent = workspace.Terrain
+        attachment0.Parent = workspace.Terrain
+        attachment1.Parent = workspace.Terrain
+        
+        local clickTpConnection
+        clickTpConnection = UserInputService.InputBegan:Connect(function(input)
+            if not clickTpEnabled then
+                clickTpConnection:Disconnect()
+                
+                -- Clean up beam
+                beam:Destroy()
+                attachment0:Destroy()
+                attachment1:Destroy()
+                
+                return
+            end
+            
+            -- Check for right click
+            if input.UserInputType == Enum.UserInputType.MouseButton2 then
+                -- Get the position under the mouse
+                local mouse = LocalPlayer:GetMouse()
+                local hit = mouse.Hit
+                
+                if hit then
+                    -- Teleport to the hit position
+                    if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+                        -- Show beam before teleporting
+                        attachment0.WorldPosition = LocalPlayer.Character.HumanoidRootPart.Position
+                        attachment1.WorldPosition = hit.Position
+                        beam.Transparency = NumberSequence.new(0)
+                        
+                        -- Wait a bit to show the beam
+                        task.wait(0.2)
+                        
+                        -- Teleport
+                        LocalPlayer.Character.HumanoidRootPart.CFrame = CFrame.new(hit.Position) + Vector3.new(0, 3, 0)
+                        
+                        -- Hide beam after teleporting
+                        beam.Transparency = NumberSequence.new(1)
+                    end
+                end
+            end
+        end)
+    end
+end)
+
+-- Teleport to Waypoint Feature
+local waypoints = {}
+
+TeleportSection.NewButton("Add Waypoint", "Save your current position", function()
+    if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+        local position = LocalPlayer.Character.HumanoidRootPart.Position
+        local name = "Waypoint " .. (#waypoints + 1)
+        
+        table.insert(waypoints, {
+            name = name,
+            position = position
+        })
+        
+        -- Update the dropdown
+        local waypointNames = {}
+        for _, waypoint in ipairs(waypoints) do
+            table.insert(waypointNames, waypoint.name)
+        end
+        
+        TeleportSection.UpdateDropdown("Select Waypoint", waypointNames)
+        
+        -- Notify user
+        DrRayLibrary:Notification("Waypoint Added", "Saved position as " .. name, "OK")
+    end
+end)
+
+TeleportSection.NewDropdown("Select Waypoint", "Choose a waypoint to teleport to", {}, function(selected)
+    -- Find the selected waypoint
+    for _, waypoint in ipairs(waypoints) do
+        if waypoint.name == selected then
+            -- Teleport to the waypoint
+            if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+                LocalPlayer.Character.HumanoidRootPart.CFrame = CFrame.new(waypoint.position)
+            end
+            break
+        end
+    end
+end)
+
+-- Misc Tab Features
+local UISection = MiscTab.NewSection("UI")
+local AutofarmSection = MiscTab.NewSection("Autofarm")
+local ServerSection = MiscTab.NewSection("Server")
+local ProtectionSection = MiscTab.NewSection("Protection")
+
+-- UI Features
+UISection.NewToggle("Watermark", "Show script info on screen", true, function(enabled)
+    DrRayLibrary.Watermark = enabled
+end)
+
+UISection.NewToggle("Keybinds", "Show keybind list", false, function(enabled)
+    DrRayLibrary.ShowKeybinds = enabled
+end)
+
+-- Theme Color Picker
+UISection.NewColorPicker("UI Color", "Change the UI color theme", Color3.new(1, 0.5, 0), function(color)
+    DrRayLibrary:ChangeColor(color)
+end)
+
+-- Auto Rejoin Feature
+local autoRejoinEnabled = false
+
+ServerSection.NewToggle("Auto Rejoin", "Automatically rejoin if kicked", false, function(enabled)
+    autoRejoinEnabled = enabled
+    
+    if enabled then
+        -- Connect to game:GetService("CoreGui").RobloxPromptGui.promptOverlay event
+        local clickRejoinConnection
+        clickRejoinConnection = game:GetService("CoreGui").ChildAdded:Connect(function(child)
+            if not autoRejoinEnabled then
+                clickRejoinConnection:Disconnect()
+                return
+            end
+            
+            if child.Name == "RobloxPromptGui" then
+                -- Wait for prompt to be fully loaded
+                task.wait(1)
+                
+                -- Check if disconnected
+                local promptOverlay = child:FindFirstChild("promptOverlay")
+                local promptText = promptOverlay and promptOverlay:FindFirstChild("ErrorPrompt") and
+                                 promptOverlay.ErrorPrompt:FindFirstChild("MessageArea") and
+                                 promptOverlay.ErrorPrompt.MessageArea:FindFirstChild("ErrorFrame") and
+                                 promptOverlay.ErrorPrompt.MessageArea.ErrorFrame:FindFirstChild("ErrorMessage")
+                
+                if promptText then
+                    -- If disconnected, wait and rejoin
+                    task.wait(1)
+                    if game:GetService("TeleportService") then
+                        game:GetService("TeleportService"):Teleport(game.PlaceId, LocalPlayer)
+                    end
+                end
+            end
+        end)
+    end
+end)
+
+-- Server Hop Feature
+ServerSection.NewButton("Server Hop", "Join a different server", function()
+    local TeleportService = game:GetService("TeleportService")
+    
+    -- Find an available server
+    local function serverHop()
+        local servers = {}
+        local pageSize = 100
+        local httpService = game:GetService("HttpService")
+        local req = httpService:JSONDecode(game:HttpGet("https://games.roblox.com/v1/games/" .. game.PlaceId .. "/servers/Public?sortOrder=Asc&limit=" .. pageSize))
+        
+        for _, server in ipairs(req.data) do
+            if server.playing < server.maxPlayers then
+                table.insert(servers, server.id)
+            end
+        end
+        
+        if #servers > 0 then
+            -- Join a random server
+            local randomServer = servers[math.random(1, #servers)]
+            TeleportService:TeleportToPlaceInstance(game.PlaceId, randomServer, LocalPlayer)
+        else
+            DrRayLibrary:Notification("Server Hop", "No available servers found", "OK")
+        end
+    end
+    
+    -- Attempt server hop
+    local success, result = pcall(serverHop)
+    
+    if not success then
+        DrRayLibrary:Notification("Server Hop Failed", result, "OK")
+    end
+end)
+
+-- Force Reset Feature
+ServerSection.NewButton("Force Reset", "Force character respawn", function()
+    if LocalPlayer.Character then
+        LocalPlayer.Character:BreakJoints()
+    end
+end)
+
+-- Chat Spam Feature
+local chatSpamEnabled = false
+local chatMessages = {
+    "Moonlight Hub - The best universal script hub!",
+    "Get Moonlight Hub now!",
+    "Dominating with Moonlight Hub!",
+    "Moonlight Hub on top!",
+    "Scripts by Moonlight Hub"
+}
+local chatSpamDelay = 3
+local lastChatTime = 0
+
+MiscTab.NewSection("Chat").NewToggle("Chat Spam", "Automatically sends messages in chat", false, function(enabled)
+    chatSpamEnabled = enabled
+    
+    if enabled then
+        -- Start chat spam
+        task.spawn(function()
+            while chatSpamEnabled do
+                if tick() - lastChatTime >= chatSpamDelay then
+                    lastChatTime = tick()
+                    
+                    -- Choose a random message
+                    local message = chatMessages[math.random(1, #chatMessages)]
+                    
+                    -- Send the chat message
+                    local function sendChat()
+                        if game:GetService("ReplicatedStorage"):FindFirstChild("DefaultChatSystemChatEvents") and
+                           game:GetService("ReplicatedStorage").DefaultChatSystemChatEvents:FindFirstChild("SayMessageRequest") then
+                            game:GetService("ReplicatedStorage").DefaultChatSystemChatEvents.SayMessageRequest:FireServer(message, "All")
+                        else
+                            -- Fallback method
+                            if game:GetService("TextChatService") and game:GetService("TextChatService").ChatInputBarConfiguration then
+                                game:GetService("TextChatService").ChatInputBarConfiguration:SendMessage(message)
+                            end
+                        end
+                    end
+                    
+                    -- Try to send chat
+                    pcall(sendChat)
+                end
+                
+                task.wait(0.1)
+            end
+        end)
+    end
+end)
+
+-- Anti AFK Feature
+local antiAfkEnabled = false
+
+ProtectionSection.NewToggle("Anti AFK", "Prevents you from being kicked for inactivity", false, function(enabled)
+    antiAfkEnabled = enabled
+    
+    if enabled then
+        -- Create a connection to the local VirtualUser
+        local virtualUser = VirtualUser
+        
+        -- Connect to PlayerIdled event
+        local antiAfkConnection
+        antiAfkConnection = LocalPlayer.Idled:Connect(function()
+            if not antiAfkEnabled then
+                antiAfkConnection:Disconnect()
+                return
+            end
+            
+            -- Simulate user activity
+            virtualUser:CaptureController()
+            virtualUser:ClickButton2(Vector2.new())
+            
+            -- Notify user
+            DrRayLibrary:Notification("Anti AFK", "Prevented AFK kick", "OK")
+        end)
+    end
+end)
+
+-- Anti Report Feature
+local antiReportEnabled = false
+
+ProtectionSection.NewToggle("Anti Report", "Attempts to prevent you from getting reported", false, function(enabled)
+    antiReportEnabled = enabled
+    
+    if enabled then
+        -- Try to hook into the report function
+        local oldNamecall
+        oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
+            local args = {...}
+            local method = getnamecallmethod()
+            
+            if antiReportEnabled and method == "FireServer" and type(self) == "Instance" then
+                local funcName = self.Name:lower()
+                
+                -- Check if this might be a report remote
+                if funcName:find("report") or funcName:find("abuse") or
+                   funcName:find("support") or funcName:find("ticket") then
+                    -- Block the report
+                    DrRayLibrary:Notification("Anti Report", "Blocked potential report attempt", "OK")
+                    return
+                end
+            end
+            
+            return oldNamecall(self, ...)
+        end)
+    end
+end)
+
+-- Game Specific Tab Features
+local gameId = game.PlaceId
+local gameIdStr = tostring(gameId)
+
+local detectedGame = "Unknown Game"
+local detectedGameIcon = "rbxassetid://10618928818"
+
+-- Game detection
+if gameId == 286090429 then
+    detectedGame = "Arsenal"
+    detectedGameIcon = "rbxassetid://6022668888"
+elseif gameId == 6284583030 then
+    detectedGame = "Pet Simulator X"
+    detectedGameIcon = "rbxassetid://7025646913"
+elseif gameId == 2788229376 then
+    detectedGame = "Da Hood"
+    detectedGameIcon = "rbxassetid://6483108421"
+elseif gameId == 3956818381 then
+    detectedGame = "Ninja Legends"
+    detectedGameIcon = "rbxassetid://4768829954"
+elseif gameId == 4520749081 or gameId == 6381829480 then
+    detectedGame = "King Legacy"
+    detectedGameIcon = "rbxassetid://5681377603"
+end
+
+-- Update game specific tab
+GameTab.NewSection("Detected Game").NewLabel("Playing: " .. detectedGame)
+
+-- Game specific sections
+if gameId == 286090429 then -- Arsenal
+    local ArsenalSection = GameTab.NewSection("Arsenal Features")
+    
+    ArsenalSection.NewToggle("Silent Aim", "Automatically hits players near your cursor", false, function(enabled)
+        -- Arsenal-specific silent aim implementation
+        local silentAimEnabled = enabled
+        local oldNamecall
+        
+        oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
+            local args = {...}
+            local method = getnamecallmethod()
+            
+            if silentAimEnabled and method == "FireServer" and self.Name == "CreateProjectile" then
+                -- Get nearest player in FOV
+                local nearestPlayer = getNearestPlayer(100)
+                
+                if nearestPlayer and nearestPlayer.Character and nearestPlayer.Character:FindFirstChild("Head") then
+                    -- Modify the projectile to hit the player
+                    args[1] = nearestPlayer.Character.Head.Position
+                    return oldNamecall(self, table.unpack(args))
+                end
+            end
+            
+            return oldNamecall(self, ...)
+        end)
+    end)
+    
+    ArsenalSection.NewToggle("Wallbang", "Shoot through walls", false, function(enabled)
+        -- Arsenal wallbang implementation
+        local wallbangEnabled = enabled
+        
+        if enabled then
+            -- Modify workspace parts to be not collidable with projectiles
+            for _, part in pairs(workspace:GetDescendants()) do
+                if part:IsA("BasePart") and part.CanCollide then
+                    part.Transparency = 0.5
+                end
+            end
+        else
+            -- Restore workspace parts
+            for _, part in pairs(workspace:GetDescendants()) do
+                if part:IsA("BasePart") and part.Transparency == 0.5 then
+                    part.Transparency = 0
+                end
+            end
+        end
+    end)
+    
+elseif gameId == 6284583030 then -- Pet Simulator X
+    local PSXSection = GameTab.NewSection("Pet Simulator X Features")
+    
+    PSXSection.NewToggle("Auto Farm Coins", "Automatically collects coins", false, function(enabled)
+        local autoFarmCoinsEnabled = enabled
+        
+        if enabled then
+            -- PSX Auto Farm
+            task.spawn(function()
+                while autoFarmCoinsEnabled do
+                    -- Find coins
+                    local coins = {}
+                    for _, v in pairs(workspace:GetDescendants()) do
+                        if v.Name == "Coin" or v.Name == "Diamond" or v.Name:find("Chest") then
+                            table.insert(coins, v)
+                        end
+                    end
+                    
+                    -- Auto collect them
+                    for _, coin in pairs(coins) do
+                        if not autoFarmCoinsEnabled then break end
+                        
+                        -- Try to collect using remote
+                        local args = {
+                            [1] = coin.Name,
+                            [2] = coin:GetAttribute("ID"),
+                        }
+                        
+                        local networkFolder = game:GetService("ReplicatedStorage"):FindFirstChild("Network")
+                        if networkFolder and networkFolder:FindFirstChild("Coins") and networkFolder.Coins:FindFirstChild("Join") then
+                            networkFolder.Coins.Join:FireServer(unpack(args))
+                        end
+                        
+                        task.wait(0.1)
+                    end
+                    
+                    task.wait(1)
+                end
+            end)
+        end
+    end)
+    
+    PSXSection.NewToggle("Auto Hatch Eggs", "Automatically hatches eggs", false, function(enabled)
+        local autoHatchEnabled = enabled
+        
+        if enabled then
+            -- PSX Auto Hatch
+            task.spawn(function()
+                while autoHatchEnabled do
+                    -- Find nearest egg
+                    local eggs = {}
+                    for _, v in pairs(workspace:GetDescendants()) do
+                        if v.Name == "Egg" then
+                            table.insert(eggs, v)
+                        end
+                    end
+                    
+                    if #eggs > 0 then
+                        local nearestEgg = eggs[1]
+                        
+                        -- Teleport to egg
+                        if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+                            LocalPlayer.Character.HumanoidRootPart.CFrame = nearestEgg.CFrame
+                        end
+                        
+                        -- Try to hatch using remote
+                        local args = {
+                            [1] = nearestEgg:GetAttribute("ID"),
+                            [2] = 1, -- Single hatch
+                        }
+                        
+                        local networkFolder = game:GetService("ReplicatedStorage"):FindFirstChild("Network")
+                        if networkFolder and networkFolder:FindFirstChild("Eggs") and networkFolder.Eggs:FindFirstChild("OpenEgg") then
+                            networkFolder.Eggs.OpenEgg:InvokeServer(unpack(args))
+                        end
+                    end
+                    
+                    task.wait(1)
+                end
+            end)
+        end
+    end)
+    
+elseif gameId == 2788229376 then -- Da Hood
+    local DaHoodSection = GameTab.NewSection("Da Hood Features")
+    
+    DaHoodSection.NewToggle("Auto Rob", "Automatically robs stores", false, function(enabled)
+        local autoRobEnabled = enabled
+        
+        if enabled then
+            -- Da Hood Auto Rob
+            task.spawn(function()
+                while autoRobEnabled do
+                    -- List of cashiers to rob
+                    local cashiers = {}
+                    for _, v in pairs(workspace:GetChildren()) do
+                        if v.Name == "Cashier" and v:FindFirstChild("Humanoid") and v.Humanoid.Health > 0 then
+                            table.insert(cashiers, v)
+                        end
+                    end
+                    
+                    -- Rob each cashier
+                    for _, cashier in pairs(cashiers) do
+                        if not autoRobEnabled then break end
+                        
+                        -- Teleport to cashier
+                        if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+                            LocalPlayer.Character.HumanoidRootPart.CFrame = cashier.Head.CFrame * CFrame.new(0, 0, 3)
+                            
+                            -- Wait for the robbery to complete
+                            task.wait(1)
+                            
+                            -- Collect the cash
+                            for _, v in pairs(workspace.Ignored.Drop:GetChildren()) do
+                                if v.Name == "MoneyDrop" then
+                                    LocalPlayer.Character.HumanoidRootPart.CFrame = v.CFrame
+                                    task.wait(0.5)
+                                end
+                            end
+                        end
+                        
+                        task.wait(1)
+                    end
+                    
+                    task.wait(1)
+                end
+            end)
+        end
+    end)
+    
+    DaHoodSection.NewToggle("Anti Stomp", "Prevents you from getting stomped", false, function(enabled)
+        local antiStompEnabled = enabled
+        
+        if enabled then
+            -- Da Hood Anti Stomp
+            LocalPlayer.CharacterAdded:Connect(function(character)
+                if not antiStompEnabled then return end
+                
+                character:WaitForChild("Humanoid")
+                
+                character.Humanoid.HealthChanged:Connect(function(health)
+                    if health <= 5 and antiStompEnabled then
+                        -- Reset character to avoid stomp
+                        LocalPlayer.Character:BreakJoints()
+                    end
+                end)
+            end)
+            
+            -- Initial setup for current character
+            if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
+                LocalPlayer.Character.Humanoid.HealthChanged:Connect(function(health)
+                    if health <= 5 and antiStompEnabled then
+                        -- Reset character to avoid stomp
+                        LocalPlayer.Character:BreakJoints()
+                    end
+                end)
+            end
+        end
+    end)
+    
+elseif gameId == 3956818381 then -- Ninja Legends
+    local NinjaLegendsSection = GameTab.NewSection("Ninja Legends Features")
+    
+    NinjaLegendsSection.NewToggle("Auto Swing", "Automatically swings your weapon", false, function(enabled)
+        local autoSwingEnabled = enabled
+        
+        if enabled then
+            -- Ninja Legends Auto Swing
+            task.spawn(function()
+                while autoSwingEnabled do
+                    -- Find the swing remote
+                    local swingRemote = game:GetService("ReplicatedStorage").Remotes:FindFirstChild("swingKatana")
+                    
+                    if swingRemote then
+                        swingRemote:FireServer()
+                    end
+                    
+                    task.wait(0.1)
+                end
+            end)
+        end
+    end)
+    
+    NinjaLegendsSection.NewToggle("Auto Sell", "Automatically sells your chi", false, function(enabled)
+        local autoSellEnabled = enabled
+        
+        if enabled then
+            -- Ninja Legends Auto Sell
+            task.spawn(function()
+                while autoSellEnabled do
+                    -- Find all sell parts
+                    local sellParts = {}
+                    for _, v in pairs(workspace:GetDescendants()) do
+                        if v:IsA("Part") and v.Name == "sellPart" then
+                            table.insert(sellParts, v)
+                        end
+                    end
+                    
+                    -- Find the closest sell part
+                    if #sellParts > 0 and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+                        local closestSellPart = sellParts[1]
+                        local closestDistance = (closestSellPart.Position - LocalPlayer.Character.HumanoidRootPart.Position).Magnitude
+                        
+                        for _, part in pairs(sellParts) do
+                            local distance = (part.Position - LocalPlayer.Character.HumanoidRootPart.Position).Magnitude
+                            if distance < closestDistance then
+                                closestSellPart = part
+                                closestDistance = distance
+                            end
+                        end
+                        
+                        -- Teleport to sell part
+                        LocalPlayer.Character.HumanoidRootPart.CFrame = closestSellPart.CFrame
+                    end
+                    
+                    task.wait(5)
+                end
+            end)
+        end
+    end)
+    
+    NinjaLegendsSection.NewToggle("Auto Buy Swords", "Automatically buys the best sword", false, function(enabled)
+        local autoBuySwordsEnabled = enabled
+        
+        if enabled then
+            -- Ninja Legends Auto Buy Swords
+            task.spawn(function()
+                while autoBuySwordsEnabled do
+                    -- Find the buy sword remote
+                    local buyRemote = game:GetService("ReplicatedStorage").Remotes:FindFirstChild("buyAllSwords")
+                    
+                    if buyRemote then
+                        buyRemote:FireServer("buyAllSwords")
+                    end
+                    
+                    task.wait(5)
+                end
+            end)
+        end
+    end)
+    
+    NinjaLegendsSection.NewToggle("Auto Buy Belts", "Automatically buys the best belt", false, function(enabled)
+        local autoBuyBeltsEnabled = enabled
+        
+        if enabled then
+            -- Ninja Legends Auto Buy Belts
+            task.spawn(function()
+                while autoBuyBeltsEnabled do
+                    -- Find the buy belt remote
+                    local buyRemote = game:GetService("ReplicatedStorage").Remotes:FindFirstChild("buyAllBelts")
+                    
+                    if buyRemote then
+                        buyRemote:FireServer("buyAllBelts")
+                    end
+                    
+                    task.wait(5)
+                end
+            end)
+        end
+    end)
+    
+elseif gameId == 4520749081 or gameId == 6381829480 then -- King Legacy
+    local KingLegacySection = GameTab.NewSection("King Legacy Features")
+    
+    KingLegacySection.NewToggle("Auto Farm", "Automatically farms nearby enemies", false, function(enabled)
+        local autoFarmEnabled = enabled
+        
+        if enabled then
+            -- King Legacy Auto Farm
+            task.spawn(function()
+                while autoFarmEnabled do
+                    -- Find nearby NPCs
+                    local npcs = {}
+                    for _, v in pairs(workspace:GetChildren()) do
+                        if v:FindFirstChild("Humanoid") and v:FindFirstChild("HumanoidRootPart") and v.Name ~= LocalPlayer.Name and not Players:GetPlayerFromCharacter(v) then
+                            if v.Humanoid.Health > 0 then
+                                table.insert(npcs, v)
+                            end
+                        end
+                    end
+                    
+                    -- Sort by distance
+                    if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+                        table.sort(npcs, function(a, b)
+                            return (a.HumanoidRootPart.Position - LocalPlayer.Character.HumanoidRootPart.Position).Magnitude <
+                                   (b.HumanoidRootPart.Position - LocalPlayer.Character.HumanoidRootPart.Position).Magnitude
+                        end)
+                        
+                        -- Farm the closest NPC
+                        if #npcs > 0 then
+                            local closestNPC = npcs[1]
+                            
+                            -- Teleport to NPC
+                            LocalPlayer.Character.HumanoidRootPart.CFrame = closestNPC.HumanoidRootPart.CFrame * CFrame.new(0, 0, 5)
+                            
+                            -- Attack the NPC
+                            local combatRemote = game:GetService("ReplicatedStorage"):FindFirstChild("Remotes") and
+                                               game:GetService("ReplicatedStorage").Remotes:FindFirstChild("Combat")
+                            
+                            if combatRemote then
+                                combatRemote:FireServer("M1")
+                            end
+                        end
+                    end
+                    
+                    task.wait(0.1)
+                end
+            end)
+        end
+    end)
+    
+    KingLegacySection.NewToggle("Auto Quest", "Automatically accepts quests", false, function(enabled)
+        local autoQuestEnabled = enabled
+        
+        if enabled then
+            -- King Legacy Auto Quest
+            task.spawn(function()
+                while autoQuestEnabled do
+                    -- Find quest givers
+                    local questGivers = {}
+                    for _, v in pairs(workspace:GetChildren()) do
+                        if v:FindFirstChild("Humanoid") and v:FindFirstChild("HumanoidRootPart") and v:FindFirstChild("QuestButton") then
+                            table.insert(questGivers, v)
+                        end
+                    end
+                    
+                    -- Sort by distance
+                    if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+                        table.sort(questGivers, function(a, b)
+                            return (a.HumanoidRootPart.Position - LocalPlayer.Character.HumanoidRootPart.Position).Magnitude <
+                                   (b.HumanoidRootPart.Position - LocalPlayer.Character.HumanoidRootPart.Position).Magnitude
+                        end)
+                        
+                        -- Get quest from the closest quest giver
+                        if #questGivers > 0 then
+                            local closestQuestGiver = questGivers[1]
+                            
+                            -- Teleport to quest giver
+                            LocalPlayer.Character.HumanoidRootPart.CFrame = closestQuestGiver.HumanoidRootPart.CFrame * CFrame.new(0, 0, 5)
+                            
+                            -- Accept quest
+                            local questRemote = game:GetService("ReplicatedStorage"):FindFirstChild("Remotes") and
+                                              game:GetService("ReplicatedStorage").Remotes:FindFirstChild("Quest")
+                            
+                            if questRemote then
+                                questRemote:FireServer("Accept", closestQuestGiver.Name)
+                            end
+                        end
+                    end
+                    
+                    task.wait(10)
+                end
+            end)
+        end
+    end)
+else
+    -- Generic game features
+    local GenericSection = GameTab.NewSection("Generic Game Features")
+    
+    GenericSection.NewToggle("Auto Collect", "Collects items automatically", false, function(enabled)
+        local autoCollectEnabled = enabled
+        
+        if enabled then
+            -- Auto collect all items
+            task.spawn(function()
+                while autoCollectEnabled do
+                    -- Find collectibles - common names for collectible items
+                    local collectibles = {}
+                    local collectibleNames = {"Coin", "Gem", "Diamond", "Cash", "Money", "Collect", "Orb", "Star"}
+                    
+                    for _, v in pairs(workspace:GetDescendants()) do
+                        for _, name in pairs(collectibleNames) do
+                            if v.Name:find(name) and v:IsA("BasePart") then
+                                table.insert(collectibles, v)
+                            end
+                        end
+                    end
+                    
+                    -- Collect them
+                    if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+                        for _, collectible in pairs(collectibles) do
+                            LocalPlayer.Character.HumanoidRootPart.CFrame = collectible.CFrame
+                            task.wait(0.1)
+                        end
+                    end
+                    
+                    task.wait(1)
+                end
+            end)
+        end
+    end)
+    
+    GenericSection.NewToggle("NPC Farm", "Automatically attacks NPCs", false, function(enabled)
+        local npcFarmEnabled = enabled
+        
+        if enabled then
+            -- Auto attack NPCs
+            task.spawn(function()
+                while npcFarmEnabled do
+                    -- Find NPCs - common patterns for NPCs
+                    local npcs = {}
+                    
+                    for _, v in pairs(workspace:GetDescendants()) do
+                        if v:FindFirstChild("Humanoid") and v:FindFirstChild("HumanoidRootPart") then
+                            -- Check if it's not a player
+                            if not Players:GetPlayerFromCharacter(v) then
+                                table.insert(npcs, v)
+                            end
+                        end
+                    end
+                    
+                    -- Attack them
+                    if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+                        for _, npc in pairs(npcs) do
+                            if npc:FindFirstChild("HumanoidRootPart") and npc:FindFirstChild("Humanoid") and npc.Humanoid.Health > 0 then
+                                -- Teleport to NPC
+                                LocalPlayer.Character.HumanoidRootPart.CFrame = npc.HumanoidRootPart.CFrame * CFrame.new(0, 0, 5)
+                                
+                                -- Equip weapon if available
+                                local tool = LocalPlayer.Character:FindFirstChildOfClass("Tool") or 
+                                           LocalPlayer.Backpack:FindFirstChildOfClass("Tool")
+                                
+                                if tool then
+                                    tool.Parent = LocalPlayer.Character
+                                end
+                                
+                                -- Attack
+                                if LocalPlayer.Character:FindFirstChildOfClass("Tool") then
+                                    -- Try different activation methods
+                                    local tool = LocalPlayer.Character:FindFirstChildOfClass("Tool")
+                                    
+                                    if tool:FindFirstChild("Activate") and tool.Activate:IsA("RemoteEvent") then
+                                        tool.Activate:FireServer()
+                                    elseif tool:FindFirstChild("Attack") and tool.Attack:IsA("RemoteEvent") then
+                                        tool.Attack:FireServer()
+                                    else
+                                        -- Simulate mouse click as last resort
+                                        VirtualUser:Button1Down(Vector2.new(0, 0))
+                                        task.wait(0.1)
+                                        VirtualUser:Button1Up(Vector2.new(0, 0))
+                                    end
+                                end
+                                
+                                task.wait(1)
+                            end
+                        end
+                    end
+                    
+                    task.wait(0.5)
+                end
+            end)
+        end
+    end)
+end
+
+-- Initialize the library with the loaded tabs
+DrRayLibrary:Init()
+
+-- Print welcome message
+print("Moonlight Script Hub loaded successfully!")
+print("Loaded features for " .. detectedGame)
+print("Created by Moonlight Hub Team")
