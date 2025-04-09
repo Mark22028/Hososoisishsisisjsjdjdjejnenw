@@ -1,12 +1,3 @@
---[[
-    Delta GUI Maker for Mobile - Complete Version
-    By MarKs
-    
-    A mobile-friendly GUI creator for Roblox with drag and drop functionality,
-    script editing capabilities, template system, and code export.
-    For use with Delta executor.
-]]
-
 -- Properly wrap the entire script in a function to prevent global execution issues
 local function InitDeltaGUIMaker()
     -- Services
